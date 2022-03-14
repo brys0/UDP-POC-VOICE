@@ -1,46 +1,25 @@
 package main
 
 import (
-	"bytes"
-	"encoding/gob"
+	"Stimme/cmd"
 	"fmt"
 	"github.com/gen2brain/malgo"
-	"log"
 	"net"
 	"os"
 	"strings"
 )
 
-type PacketType uint8
-
-type Packet struct {
-	Type     PacketType
-	ClientID string
-	Frame    AudioFrame
-}
-type AudioFrame struct {
-	Data []byte
-}
-
-func (p *Packet) BinarySize() int {
-	return 1 + len(p.ClientID) + p.audioFramesSize()
-}
-func (p *Packet) audioFramesSize() int {
-	return len(p.Frame.Data)
-}
-func (f *AudioFrame) BinarySize() int {
-	return 2 + len(f.Data)
-}
 func main() {
-	serverEP := "127.0.0.1"
+	serverEP := "localhost"
 	if len(os.Args) > 1 {
 		serverEP = os.Args[1]
 	}
 	if !strings.Contains(serverEP, ":") {
-		serverEP = fmt.Sprintf("%v:8000", serverEP)
+		serverEP = fmt.Sprintf("%v:8080", serverEP)
 	}
 
 	conn, err := net.Dial("udp", serverEP)
+	fmt.Printf("\n Connection %v", conn.LocalAddr())
 	if err != nil {
 		fmt.Printf("Dial err %v", err)
 		os.Exit(-1)
@@ -79,16 +58,19 @@ func createAudioStream(conn net.Conn) {
 	deviceConfig.SampleRate = 44000
 	deviceConfig.Alsa.NoMMap = 1
 	//sizeInBytes := uint32(malgo.SampleSizeInBytes(deviceConfig.Capture.Format))
+	packetIteration := 0
 	onRecvFrames := func(pSample2, pSample []byte, framecount uint32) {
-		p := Packet{
-			Type:     1,
-			ClientID: "newClient",
-			Frame: AudioFrame{
+		packetIteration += 1
+		p := cmd.Packet{
+			Iteration: packetIteration,
+			Type:      3,
+			ClientID:  "newClient",
+			Frame: cmd.AudioFrame{
 				Data: pSample,
 			},
 		}
-		conn.Write(EncodeToBytes(p))
-		fmt.Printf("\r Output : %v", p.BinarySize())
+		fmt.Printf("\r Total iteration: %v", packetIteration)
+		conn.Write(p.Encode())
 	}
 	fmt.Println("Hear you speak!")
 	captureCallbacks := malgo.DeviceCallbacks{
@@ -105,24 +87,4 @@ func createAudioStream(conn net.Conn) {
 		os.Exit(1)
 	}
 	fmt.Scanln()
-}
-
-func EncodeToBytes(p interface{}) []byte {
-
-	buf := bytes.Buffer{}
-	enc := gob.NewEncoder(&buf)
-	err := enc.Encode(p)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return buf.Bytes()
-}
-func DecodePacket(s []byte) Packet {
-	p := Packet{}
-	dec := gob.NewDecoder(bytes.NewReader(s))
-	err := dec.Decode(&p)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return p
 }
